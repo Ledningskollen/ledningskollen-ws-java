@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import javax.xml.soap.SOAPException;
 import javax.xml.ws.BindingProvider;
 import javax.xml.ws.handler.MessageContext;
 
@@ -22,18 +23,73 @@ import se.ledningskollen.api.cableowner.CableOwnerSoap;
 import se.ledningskollen.api.login.AuthenticateWebServiceUser;
 import se.ledningskollen.api.login.AuthenticateWebServiceUserSoap;
 
+/**
+ * <p>This is an example of a client for Ledningskollen's web service API.
+ * It illustrates how a client can be written using JAX WS, which is
+ * bundled with Java 6 and forward.</p>
+ * 
+ * <p>This is quite straight forward JAX WS, except for the login and
+ * authentication handling, which is a little bit tricky since Ledningskollen's
+ * web services rely on cookie authentication, and the authentication
+ * cookies should be shared by more than one service endpoint. JAX WS in
+ * itself does not support this, so the cookie handling must be implemented
+ * manually.</p>
+ * 
+ * <p>The client class has methods for logging in and out (<code>login</code>
+ * and <code>logout</code>). After a successful login, the client instance's
+ * <code>initService</code> method can be used to initialize a service (a
+ * JAX WS Port/proxy) with the required authentication cookies.
+ * 
+ * <p>The class' <code>main</code> method shows an example of how the class
+ * is intended to be used.</p>
+ * 
+ * @author Per Liedman
+ *
+ */
 public class Client {
 	private String baseURI;
 	private String username;
 	private String password;
 	private CookieManager cookieManager = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
-	
+
+	/**
+	 * <p>Creates a new client instance with the specified authentication
+	 * credentials.</p>
+	 * 
+	 * @param username
+	 * @param password
+	 */
+	public Client(String username, String password) {
+		this(null, username, password);
+	}
+
+	/**
+	 * <p>Creates a new client instance with the specified authentication
+	 * credentials and service base URI.</p>
+	 * 
+	 * The service base URI can be used to access other deployments of
+	 * Ledningskollen, like specifically the test instance of Ledningskollen
+	 * (base URI <code>https://test.ledningskollen.se/ella/</code>). If not
+	 * specified, Ledningskollen's production URI will be used.
+	 * 
+	 * @param baseURI The base URI to use when initializing services
+	 * @param username
+	 * @param password
+	 */
 	public Client(String baseURI, String username, String password) {
 		this.baseURI = baseURI;
 		this.username = username;
 		this.password = password;
 	}
 	
+	/**
+	 * Attempts to authenticate the instance's username and password
+	 * against Ledningskollen.
+	 * @return <code>true</code> if the authentication is successful
+	 * @throws IOException
+	 * @throws URISyntaxException
+	 * @throws SOAPException if an authentication error occurs
+	 */
 	public boolean login() throws IOException, URISyntaxException {
 		AuthenticateWebServiceUser loginService = new AuthenticateWebServiceUser();
 		AuthenticateWebServiceUserSoap authenticateWebServiceUserSoap = loginService.getAuthenticateWebServiceUserSoap();		
@@ -53,8 +109,13 @@ public class Client {
 		return success;
 	}
 	
-	public boolean logout() {
-		return true;
+	public boolean logout() throws IOException, URISyntaxException {
+		AuthenticateWebServiceUser loginService = new AuthenticateWebServiceUser();
+		AuthenticateWebServiceUserSoap authenticateWebServiceUserSoap = loginService.getAuthenticateWebServiceUserSoap();		
+		initService((BindingProvider) authenticateWebServiceUserSoap);
+		
+		boolean success = authenticateWebServiceUserSoap.logOut().equals("");
+		return success;
 	}
 	
 	public void initService(BindingProvider service) throws IOException, URISyntaxException {
@@ -63,11 +124,13 @@ public class Client {
 	}
 	
 	private void setupURI(BindingProvider service) {
-		Map<String, Object> requestContext = service.getRequestContext();
-		String uri = ((String) requestContext.get(BindingProvider.ENDPOINT_ADDRESS_PROPERTY))
-			.replace("https://ella.ledningskollen.se/", baseURI);
-		
-		requestContext.put(BindingProvider.ENDPOINT_ADDRESS_PROPERTY, uri);
+		if (baseURI != null) {
+			Map<String, Object> requestContext = service.getRequestContext();
+			String uri = ((String) requestContext.get(BindingProvider.ENDPOINT_ADDRESS_PROPERTY))
+				.replace("https://ella.ledningskollen.se/", baseURI);
+			
+			requestContext.put(BindingProvider.ENDPOINT_ADDRESS_PROPERTY, uri);
+		}
 	}
 
 	private void setCookies(BindingProvider b) throws IOException, URISyntaxException {
@@ -111,10 +174,6 @@ public class Client {
 			System.exit(1);
 		} else {
 			System.out.println("Successfully authenticated as \"" + login + "\".");
-			System.out.println("Set cookies:");
-			for (HttpCookie cookie : client.cookieManager.getCookieStore().getCookies()) {
-				System.out.println("\t" + cookie.getName() + "=" + cookie.getValue());
-			}
 			
 			CableOwner cableOwnerService = new CableOwner();
 			CableOwnerSoap cableOwnerSoap = cableOwnerService.getCableOwnerSoap();
@@ -124,6 +183,12 @@ public class Client {
 			ArrayOfAreaOfInterest1 areasOfInterest = cableOwnerSoap.getAllAreasOfInterestWithData();
 			for (AreaOfInterest1 areaOfInterest : areasOfInterest.getAreaOfInterest1()) {
 				System.out.println("\t" + areaOfInterest.getName());
+			}
+			
+			if (client.logout()) {
+				System.out.println("Logged out.");
+			} else {
+				System.out.println("Logout failed.");
 			}
 		}
 	}
