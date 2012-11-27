@@ -2,9 +2,12 @@ package se.ledningskollen.example.client;
 
 import java.io.IOException;
 import java.net.CookieManager;
+import java.net.CookiePolicy;
 import java.net.HttpCookie;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -23,7 +26,7 @@ public class Client {
 	private String baseURI;
 	private String username;
 	private String password;
-	private CookieManager cookieManager = new CookieManager();
+	private CookieManager cookieManager = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
 	
 	public Client(String baseURI, String username, String password) {
 		this.baseURI = baseURI;
@@ -59,7 +62,7 @@ public class Client {
 		setCookies(service);
 	}
 	
-	public void setupURI(BindingProvider service) {
+	private void setupURI(BindingProvider service) {
 		Map<String, Object> requestContext = service.getRequestContext();
 		String uri = ((String) requestContext.get(BindingProvider.ENDPOINT_ADDRESS_PROPERTY))
 			.replace("https://ella.ledningskollen.se/", baseURI);
@@ -73,15 +76,22 @@ public class Client {
 			(String)requestContext.get(BindingProvider.ENDPOINT_ADDRESS_PROPERTY);
 		Map<String, List<String>> requestHeaders = new HashMap<String, List<String>>();
 		Map<String, List<String>> cookieHeaders = cookieManager.get(new URI(serviceUri), requestHeaders);
-		for (String cookieHeader : cookieHeaders.keySet()) {
-			List<String> headers = cookieHeaders.get(cookieHeader);
-			for (String header : headers) {
-				System.out.println("Setting header \"" + cookieHeader + ": " + header + "\"");
+
+		if (cookieHeaders.size() > 0) {
+			for (String cookieHeader : cookieHeaders.keySet()) {
+				List<String> headers = cookieHeaders.get(cookieHeader);
+				
+				List<String> cookieValue = new ArrayList<String>();
+				StringBuffer currentCookie = new StringBuffer(cookieValue.size() > 0 ? cookieValue.get(0) : "");
+				for (String header : headers) {
+					currentCookie.append(header)
+						.append(";");
+				}
+				requestHeaders.put(cookieHeader, Collections.singletonList(currentCookie.toString()));
 			}
-			requestHeaders.put(cookieHeader, headers);
+			
+			requestContext.put(MessageContext.HTTP_REQUEST_HEADERS, requestHeaders);
 		}
-		
-		requestContext.put(MessageContext.HTTP_REQUEST_HEADERS, requestHeaders);
 	}
 	
 	public static void main(String[] args) throws IOException, URISyntaxException {
